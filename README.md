@@ -155,6 +155,58 @@ Simply add a `ssh` object in your `launch` request.
 }
 ```
 
+### Using SSH File Push from local to remote
+
+在SSH远程gdb调试的情况下支持对本地文件上传到远程目录的功能。
+
+主播在调试本地GCC程序的时候，本来就是gcc交叉编译的aarch64 Linux二进制，结果我调试个程序还需要我手动上传？愤怒修改源码增加自动上传功能。
+
+```json
+{
+            "type": "gdb",
+            "request": "launch",
+            "name": "SSH debug",
+            "target": "application",
+            // 远端程序参数
+            "arguments": "-h xxxx -p yyyy -s /tmp/test.sock",
+            // 本地工作目录
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "rebuild",
+            // ssh对象
+            "ssh": {
+                // 远端机器IP
+                "host": "192.168.59.252",
+                // 远端机器ssh端口
+                "port": 2201,
+                // 远端机器ssh用户名
+                "user": "root",
+                "password": "root",
+                // 远端工作目录
+                "cwd": "/tmp/working",
+                // 代码映射
+                "sourceFileMap": {
+                    "/Users/qiuchenly/Downloads/testcpp": "/Users/qiuchenly/Downloads/testcpp"
+                },
+                // 开启X11转发
+                "forwardX11": false,
+                // ssh连接后，执行一个echo命令
+                "bootstrap": "echo 'this is a bootstrap'",
+                "scpPush": [
+                    {
+                        "local": "/Users/qiuchenly/Downloads/testcpp/build/application",
+                        "remote": "/tmp/working/application",
+                    },
+                    // 支持整个目录递归push 但目前仍需要目标机器存在/tmp/working目录才可以 否则会报错 没时间改
+                    {
+                        "local": "/Users/qiuchenly/Downloads/testcpp/src",
+                        "remote": "/tmp/working/",
+                    }
+                ]
+            },
+            "valuesFormatting": "prettyPrinters",
+        }
+```
+
 `ssh.sourceFileMap` will be used to trim off local paths and map them to the server. This is
 required for basically everything except watched variables or user commands to work.
 
