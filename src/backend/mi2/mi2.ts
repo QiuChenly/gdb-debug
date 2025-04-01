@@ -6,7 +6,8 @@ import * as linuxTerm from '../linux/console';
 import * as net from "net";
 import * as fs from "fs";
 import * as path from "path";
-import { Client, ClientChannel, ExecOptions } from "ssh2";
+import { Client, ClientChannel, ExecOptions, SFTPWrapper } from "ssh2";
+import { isFile, recurseUpload, uploadFileWithPermissions } from "./ScpUpload";
 
 export function escape(str: string) {
 	return str.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
@@ -33,20 +34,20 @@ class LogMessage {
 	protected logReplaceTest = /{([^}]*)}/g;
 	public logMsgBrkList: Breakpoint[] = [];
 
-	logMsgOutput(record:any){
+	logMsgOutput(record: any) {
 		if ((record.type === 'console')) {
-			if(record.content.startsWith("$")){
+			if (record.content.startsWith("$")) {
 				const content = record.content;
 				const variableMatch = this.logMsgMatch.exec(content);
 				if (variableMatch) {
 					const value = content.substr(variableMatch[1].length).trim();
 					this.logMsgRplItem.push(value);
 					this.logMsgRplNum--;
-					if(this.logMsgRplNum == 0){
-						for(let i = 0; i < this.logMsgRplItem.length; i++){
+					if (this.logMsgRplNum == 0) {
+						for (let i = 0; i < this.logMsgRplItem.length; i++) {
 							this.logMsgVarProcess = this.logMsgVarProcess.replace("placeHolderForVariable", this.logMsgRplItem[i]);
 						}
-						return "Log Message:"  + this.logMsgVarProcess;
+						return "Log Message:" + this.logMsgVarProcess;
 					}
 				}
 			}
@@ -54,9 +55,9 @@ class LogMessage {
 		}
 	}
 
-	logMsgProcess(parsed:MINode){
-		this.logMsgBrkList.forEach((brk)=>{
-			if(parsed.outOfBandRecord[0].output[0][1] == "breakpoint-hit" && parsed.outOfBandRecord[0].output[2][1] == brk.id){
+	logMsgProcess(parsed: MINode) {
+		this.logMsgBrkList.forEach((brk) => {
+			if (parsed.outOfBandRecord[0].output[0][1] == "breakpoint-hit" && parsed.outOfBandRecord[0].output[2][1] == brk.id) {
 				this.logMsgVar = brk?.logMessage;
 				const matches = this.logMsgVar.match(this.logReplaceTest);
 				const count = matches ? matches.length : 0;
@@ -91,7 +92,7 @@ export class MI2 extends EventEmitter implements IBackend {
 			this.procEnv = env;
 		}
 	}
-	protected logMessage:LogMessage = new LogMessage;
+	protected logMessage: LogMessage = new LogMessage;
 
 	load(cwd: string, target: string, procArgs: string, separateConsole: string, autorun: string[]): Thenable<any> {
 		if (!path.isAbsolute(target))
@@ -183,7 +184,39 @@ export class MI2 extends EventEmitter implements IBackend {
 				connectionArgs.password = args.password;
 			}
 
-			this.sshConn.on("ready", () => {
+			this.sshConn.on("ready", async () => {
+				await new Promise<SFTPWrapper | null>(async (ret, ree) => {
+					this.sshConn.sftp((err, sftp) => {
+						if (err) {
+							this.log("stderr", "SFTP 初始化失败: " + err.message);
+							ret(null)
+						} else {
+							this.log("stdout", "SFTP 初始化成功。");
+							ret(sftp);
+						}
+					});
+				}).then(ftp => {
+					return new Promise(async (ret, ree) => {
+						for (const fileObj of args.scpPush) {
+							this.log("stdout", "准备通过SSH上传: " + JSON.stringify(fileObj));
+							// 这里需要自动创建远程文件夹 还没写
+
+							//是否为文件
+							if (isFile(fileObj.local)) {
+								// 为文件
+								const res = await uploadFileWithPermissions(ftp, fileObj);
+								this.log("stdout", "当前为文件: " + fileObj.local + "\n" + res);
+							} else {
+								this.log("stdout", "为目录: " + fileObj.local);
+								await recurseUpload(ftp, fileObj);
+							}
+						}
+						ret("OK");
+					});
+				});
+
+				this.log("stdout", "SFTP 上传全部完成。");
+
 				this.log("stdout", "Running " + this.application + " over ssh...");
 				const execArgs: ExecOptions = {};
 				if (args.forwardX11) {
@@ -405,7 +438,7 @@ export class MI2 extends EventEmitter implements IBackend {
 						if (record.isStream) {
 							this.log(record.type, record.content);
 							const logOutput = this.logMessage.logMsgOutput(record);
-							if(logOutput){
+							if (logOutput) {
 								this.log("console", logOutput);
 							}
 						} else {
@@ -465,10 +498,10 @@ export class MI2 extends EventEmitter implements IBackend {
 												this.log("stderr", "Program exited with code " + parsed.record("exit-code"));
 												this.emit("exited-normally", parsed);
 												break;
-												// case "exited-signalled":	// consider handling that explicit possible
-												// 	this.log("stderr", "Program exited because of signal " + parsed.record("signal"));
-												// 	this.emit("stopped", parsed);
-												// 	break;
+											// case "exited-signalled":	// consider handling that explicit possible
+											// 	this.log("stderr", "Program exited because of signal " + parsed.record("signal"));
+											// 	this.emit("stopped", parsed);
+											// 	break;
 
 											default:
 												this.log("console", "Not implemented stop reason (assuming exception): " + reason);
@@ -631,10 +664,10 @@ export class MI2 extends EventEmitter implements IBackend {
 		return this.sendCommand("break-condition " + bkptNum + " " + condition);
 	}
 
-	setLogPoint(bkptNum:number, command:string): Thenable<any> {
+	setLogPoint(bkptNum: number, command: string): Thenable<any> {
 		const regex = /{([a-z0-9A-Z-_\.\>\&\*\[\]]*)}/gm;
-		let m:RegExpExecArray;
-		let commands:string = "";
+		let m: RegExpExecArray;
+		let commands: string = "";
 
 		while ((m = regex.exec(command))) {
 			if (m.index === regex.lastIndex) {

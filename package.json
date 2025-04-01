@@ -231,6 +231,11 @@
 								"type": "object",
 								"description": "If this is set then the extension will connect to an ssh host and run GDB there",
 								"properties": {
+									"scpPush": {
+										"type": "array",
+										"description": "上传的文件或目录",
+										"default": []
+									},
 									"host": {
 										"type": "string",
 										"description": "Remote host name/ip to connect to"

@@ -4,7 +4,7 @@ import { DebugProtocol } from "vscode-debugprotocol/lib/debugProtocol";
 export type ValuesFormattingMode = "disabled" | "parseText" | "prettyPrinters";
 
 export interface Breakpoint {
-	id?:number;
+	id?: number;
 	file?: string;
 	line?: number;
 	raw?: string;
@@ -40,6 +40,11 @@ export interface RegisterValue {
 	value: string;
 }
 
+export interface SCPEntry {
+	local: string;
+	remote: string;
+}
+
 export interface SSHArguments {
 	forwardX11: boolean;
 	host: string;
@@ -54,6 +59,7 @@ export interface SSHArguments {
 	x11host: string;
 	bootstrap: string;
 	sourceFileMap: { [index: string]: string };
+	scpPush: Array<SCPEntry>;
 }
 
 export interface IBackend {
